@@ -81,12 +81,10 @@ class RequestsSlug(Slug):
         """Safe membership testing for sets."""
         filtered = {}
         for k, v in params.items():
-            # If include_params is a set, k must be in it.
             if self.include_params is not None:
                 if k not in self.include_params:
                     continue
 
-            # If exclude_params is a set, k must not be in it.
             if self.exclude_params is not None:
                 if k in self.exclude_params:
                     continue
@@ -97,7 +95,6 @@ class RequestsSlug(Slug):
     def _assemble_tokens(
         self, final_word: str = "", final_kwargs: Optional[dict] = None
     ) -> list[Any]:
-        # 1. Path Construction
         base_word = self.segments[0].word if self.segments else ""
         url_obj = URL(base_word)
         for seg in self.segments[1:]:
@@ -106,7 +103,6 @@ class RequestsSlug(Slug):
         if final_word:
             url_obj = url_obj / final_word
 
-        # 2. Params Accumulation
         all_params = {**self.params}
         for seg in self.segments:
             all_params.update(seg.flags)
@@ -115,18 +111,15 @@ class RequestsSlug(Slug):
             all_params.update(dict(url_obj.query))
             url_obj = url_obj.with_query({})
 
-        # 3. Path Injection (Injection happens BEFORE filtering)
         final_path = url_obj.path
         for key, val in all_params.items():
             placeholder = f"{{{{{key}}}}}"
             if placeholder in final_path:
                 final_path = final_path.replace(placeholder, str(val))
 
-        # 4. Filter and Normalize URL
         final_params = self._filter_params(all_params)
         final_url = str(url_obj.with_path(final_path))
 
-        # 5. Payload Construction
         full_payload = {**self.payload_data, **(final_kwargs or {})}
 
         return [
