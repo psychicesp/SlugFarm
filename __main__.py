@@ -1,7 +1,14 @@
 #%%
-from src.slug_farm.base import Slug
+from src.slug_farm.bash_slugs import BashSlug
 
-test_slug = Slug(
-    name="slug.test",
-    
+docker_slug = BashSlug(
+    name="docker",
+    command="docker",
 )
+
+docker_ps = docker_slug.branch(
+    branch_name="ps",
+    command="ps"
+)
+
+# %%

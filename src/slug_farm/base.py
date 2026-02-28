@@ -1,22 +1,6 @@
 from dataclasses import dataclass, field
+import copy
 from typing import Any, Callable, Dict, List, Optional
-
-
-def bash_kwarg_tokens(kwargs: dict[str, Any]) -> list[str]:
-    tokens: list[str] = []
-
-    for k, v in sorted(kwargs.items(), key=lambda kv: (len(kv[0]), kv[0])):
-        prefix = "-" if len(k) == 1 else "--"
-        flag = f"{prefix}{k}"
-        if v is False:
-            continue
-        if v is None or v is True:
-            tokens.append(flag)
-        else:
-            tokens.extend([flag, str(v)])
-
-    return tokens
-
 
 @dataclass(slots=True)
 class SlugResult:
@@ -24,7 +8,7 @@ class SlugResult:
     status: int
     output: Any
     error: str = ""
-    tokens: list[str] = field(default_factory=list)
+    tokens: list[Any] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -60,17 +44,46 @@ class Slug:
             raise Exception(
                 "Cannot instantiate base Slug with slug_kwargs and no base_command.  There would be nothing to apply the kwargs to"
             )
+        
+        self.command_segments = self._add_command(command=command, slug_kwargs=slug_kwargs)
+        self.format_kwargs = kwarg_formatter
+        self.format_commands = command_formatter
 
-        self.add_command(command=command, slug_kwargs=slug_kwargs)
+    def branch(
+        self,
+        branch_name: str,
+        command: Optional[str] = None,
+        slug_kwargs: Optional[dict[str, Any]] = None,
+        replace_command=False
+    ) -> "Slug":
+        """Creates a new instance with an additional command-flag segment."""
+        
+        new_command_segments = self._add_command(command=command, slug_kwargs=slug_kwargs)
+        new_name = f"{branch_name}.{self.name}"
+        if replace_command:
+            return self.__class__(
+                name=new_name,
+                command = command,
+                slug_kwargs = slug_kwargs,
+                kwarg_formatter=self.format_kwargs,
+                command_formatter = self.format_commands,
+            )
+        return self.__class__(
+            name=new_name,
+            base_command_segments=new_command_segments,
+            kwarg_formatter=self.format_kwargs,
+            command_formatter = self.format_commands,
+        )
+                
 
-        self.kwarg_formatter = kwarg_formatter
-        self.command_formatter = command_formatter
-
-    def add_command(
+    def _add_command(
         self,
         command: Optional[str] = None,
         slug_kwargs: Optional[dict] = None,
-    ):
+    ) -> list[CommandSegment]:
+        new_command_segments = copy.deepcopy(self.command_segments) if self.command_segments else []
+        if not command and not slug_kwargs:
+            return new_command_segments
         if slug_kwargs and not command:
             if not self.command_segments:
                 raise Exception(
@@ -79,33 +92,45 @@ class Slug:
             print(
                 "You supplied Kwargs but no command.  Appending these to last command"
             )
-            self.command_segments[0].kwargs.update(slug_kwargs)
-        else:
-            if not slug_kwargs:
-                slug_kwargs = {}
-            self.command_segments.append(
-                CommandSegment(command=command, kwargs=slug_kwargs)
-            )
+            new_command_segments[-1].kwargs.update(slug_kwargs)
+            return new_command_segments
+        if not slug_kwargs:
+            slug_kwargs = {}
+        new_command_segments.append(
+            CommandSegment(command=command, kwargs=slug_kwargs)
+        )
+        return new_command_segments
 
-    def assemble_tokens(self):
-        self.tokens = [
-            (self.command_formatter(x.command), self.kwarg_formatter(x.kwargs))
-            for x in self.command_segments
-        ]
+    def _test_print(self, tokens: list[Any],):
+        for token in tokens:
+            print(str(token))
+
+    def assemble_tokens(self, command: Optional[str] = None,
+        task_kwargs: Optional[dict[str, Any]] = None,):
+        task_commands = self._add_command(command=command, slug_kwargs=task_kwargs)
+        if isinstance(self.command_segments, list):
+            tokens = [
+                (self.format_commands(str(x.command)), self.format_kwargs(x.kwargs))
+                for x in task_commands
+            ]
+        else:
+            print("Nothing to assemble!")
+            tokens = []
+        return tokens
 
     def execute(
         self,
-        command: Optional[str] = None,
-        task_kwargs: Optional[dict[str, Any]] = None,
+        tokens: list[Any],
     ) -> SlugResult:
         print(
             "You didn't instantiate this with a usable command.  Its just a sad useless Slug"
         )
+        
         return SlugResult(
             ok=True,
             status=200,
             output="You didn't instantiate this with a usable command.  Its just a sad useless Slug",
-            tokens=self.tokens,
+            tokens=tokens,
         )
 
     def __call__(
@@ -114,19 +139,18 @@ class Slug:
         task_kwargs: Optional[dict[str, Any]] = None,
         test=False,
     ) -> SlugResult:
-        self.assemble_tokens()
+        tokens = self.assemble_tokens(command=command, task_kwargs=task_kwargs)
         if test:
             print(f"\n--- DRY RUN: {self.name} ---")
-            for token in self.tokens:
-                print(str(token))
+            self._test_print(tokens)
             return SlugResult(
                 True,
                 200,
                 "Test Happened",
                 "Dont Think So",
-                self.tokens,
+                tokens,
             )
-        return self.execute(command=command, task_kwargs=task_kwargs)
+        return self.execute(tokens = tokens)
 
 
 # class Slug:
