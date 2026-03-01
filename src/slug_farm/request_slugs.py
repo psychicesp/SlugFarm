@@ -1,10 +1,11 @@
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
 import requests
 from yarl import URL
 
-from src.slug_farm.base import CommandSegment, Slug, SlugResult
+from src.slug_farm.base import Slug, SlugResult
 
 
 @dataclass(slots=True)
@@ -19,154 +20,155 @@ class RequestPackage:
     timeout: int
 
 
-class RequestsSlug(Slug):
+class RequestSlug(Slug):
     def __init__(
         self,
         name: str,
-        segments: list[CommandSegment] = None,
+        base_url: str | URL = URL(),
         method: str = "GET",
         headers: Optional[dict] = None,
         payload_data: Optional[dict] = None,
         params: Optional[dict] = None,
         timeout: int = 120,
-        kwarg_formatter=lambda x: dict(x),
         include_params: Optional[Iterable[str]] = None,
         exclude_params: Optional[Iterable[str]] = None,
+        base_command_segments: Optional[list] = None,  # Added to support branch
     ):
-        super().__init__(name, segments, kwarg_formatter=kwarg_formatter)
+        # We pass the base_url as the 'command' to the first segment
+        super().__init__(
+            name=name,
+            command=str(base_url) if not base_command_segments else None,
+            base_command_segments=base_command_segments,
+        )
+
         self.method = method.upper()
         self.headers = headers or {}
-        self.params = params or {}
+        self.params = params or {}  # Static base params
         self.payload_data = payload_data or {}
         self.timeout = timeout
 
-        # Initialize as Sets or None
         self.include_params = set(include_params) if include_params else None
         self.exclude_params = set(exclude_params) if exclude_params else None
 
     def branch(
         self,
-        name: str,
-        sub_path: str = "",
+        branch_name: str,
+        url_segment: str = "",
         sub_params: Optional[dict] = None,
         sub_payload: Optional[dict] = None,
         method: Optional[str] = None,
-        headers: Optional[dict] = None,
-        include_params: Optional[Iterable[str]] = None,
-        exclude_params: Optional[Iterable[str]] = None,
+        sub_headers: Optional[dict] = None,
+        timeout: Optional[int] = None,
     ) -> "RequestsSlug":
-        # Pass sub_params to super().branch to store in segment flags
-        child = super().branch(name, sub_path, sub_params)
+        """Creates a sub-route or specialized version of the current request."""
 
-        child.payload_data = {**self.payload_data, **(sub_payload or {})}
-        child.headers = {**self.headers, **(headers or {})}
-        child.params = {**self.params, **(sub_params or {})}
-        child.method = method.upper() if method else self.method
-        child.timeout = self.timeout
-
-        # Handle Filter Inheritance
-        child.include_params = (
-            set(include_params) if include_params else self.include_params
+        # 1. Use base class logic to add the new URL segment and params/payload
+        # We treat sub_params/sub_payload as the 'kwargs' for this segment
+        combined_kwargs = {**(sub_params or {}), **(sub_payload or {})}
+        new_segments = self.add_command(
+            command=url_segment, slug_kwargs=combined_kwargs
         )
 
-        if exclude_params:
-            parent_exclude = self.exclude_params or set()
-            child.exclude_params = parent_exclude.union(set(exclude_params))
-        else:
-            child.exclude_params = self.exclude_params
+        # 2. Merge headers and state
+        new_headers = {**self.headers, **(sub_headers or {})}
 
-        return child
+        return self.__class__(
+            name=f"{branch_name}.{self.name}",
+            method=method or self.method,
+            headers=new_headers,
+            params=self.params,  # Base params stay base
+            payload_data=self.payload_data,
+            timeout=timeout or self.timeout,
+            include_params=self.include_params,
+            exclude_params=self.exclude_params,
+            base_command_segments=new_segments,
+        )
 
     def _filter_params(self, params: dict) -> dict:
-        """Safe membership testing for sets."""
+        if self.include_params is None and self.exclude_params is None:
+            return params
+
         filtered = {}
         for k, v in params.items():
-            if self.include_params is not None:
-                if k not in self.include_params:
-                    continue
-
-            if self.exclude_params is not None:
-                if k in self.exclude_params:
-                    continue
-
+            if self.include_params is not None and k not in self.include_params:
+                continue
+            if self.exclude_params is not None and k in self.exclude_params:
+                continue
             filtered[k] = v
         return filtered
 
-    def _assemble_tokens(
-        self, final_word: str = "", final_kwargs: Optional[dict] = None
-    ) -> list[Any]:
-        base_word = self.segments[0].word if self.segments else ""
-        url_obj = URL(base_word)
-        for seg in self.segments[1:]:
-            if seg.word:
-                url_obj = url_obj / seg.word
-        if final_word:
-            url_obj = url_obj / final_word
+    def assemble_tokens(
+        self, command: Optional[str] = None, task_kwargs: Optional[dict] = None
+    ) -> list[RequestPackage]:
+        """Collapses all segments into a single RequestPackage."""
 
-        all_params = {**self.params}
-        for seg in self.segments:
-            all_params.update(seg.flags)
+        all_segments = self.add_command(command=command, slug_kwargs=task_kwargs)
+        url_obj = URL(all_segments[0].command or "")
 
-        if url_obj.query:
-            all_params.update(dict(url_obj.query))
-            url_obj = url_obj.with_query({})
+        accumulated_url_params = deepcopy(self.params)
+        accumulated_payload = deepcopy(self.payload_data)
 
-        final_path = url_obj.path
-        for key, val in all_params.items():
-            placeholder = f"{{{{{key}}}}}"
-            if placeholder in final_path:
-                final_path = final_path.replace(placeholder, str(val))
+        for i, seg in enumerate(all_segments):
+            # i > 0 because segment 0 is the base URL
+            if i > 0 and seg.command:
+                url_obj = url_obj / seg.command
 
-        final_params = self._filter_params(all_params)
-        final_url = str(url_obj.with_path(final_path))
+            # For REST, we have to decide if kwargs are params or payload.
+            # Usually, GET/DELETE = params, POST/PUT/PATCH = JSON.
+            if seg.kwargs:
+                if self.method in ["POST", "PUT", "PATCH"]:
+                    accumulated_payload.update(seg.kwargs)
+                else:
+                    accumulated_url_params.update(seg.kwargs)
 
-        full_payload = {**self.payload_data, **(final_kwargs or {})}
+        # Final URL processing (filtering and path interpolation)
+        final_params = self._filter_params(accumulated_url_params)
 
         return [
             RequestPackage(
                 method=self.method,
-                url=final_url,
+                url=str(url_obj),
                 params=final_params,
-                json_body=full_payload,
+                json_body=accumulated_payload,
                 headers=self.headers,
                 timeout=self.timeout,
             )
         ]
 
-    def execute(self, tokens: list[Any]) -> SlugResult:
+    def execute(self, tokens: list[Any], processed_tokens: Any = None) -> Any:
         if not tokens or not isinstance(tokens[0], RequestPackage):
-            return SlugResult(False, 500, "", "Invalid RequestPackage", [])
+            return SlugResult(False, 500, "Invalid tokens", tokens=tokens)
 
         pkg: RequestPackage = tokens[0]
 
-        request_config = {
-            "method": pkg.method,
-            "url": pkg.url,
-            "params": pkg.params,
-            "headers": pkg.headers,
-            "timeout": pkg.timeout,
-        }
-
-        if pkg.method in ["POST", "PUT", "PATCH", "DELETE"]:
-            request_config["json"] = pkg.json_body
-        else:
-            request_config["params"].update(pkg.json_body)
-
         try:
-            resp = requests.request(**request_config)
-            return self._handle_response(resp)
+            resp = requests.request(
+                method=pkg.method,
+                url=pkg.url,
+                params=pkg.params,
+                json=pkg.json_body if pkg.method in ["POST", "PUT", "PATCH"] else None,
+                headers=pkg.headers,
+                timeout=pkg.timeout,
+            )
+            return resp
         except Exception as e:
-            return SlugResult(False, 500, "", str(e), [f"{pkg.method} {pkg.url}"])
+            return SlugResult(False, 500, str(e), tokens=tokens)
 
-    def _handle_response(self, resp: requests.Response) -> SlugResult:
+    def handle_response(
+        self, response: Any, tokens: list[Any], processed_tokens: Any = None
+    ) -> SlugResult:
+        if isinstance(response, SlugResult):
+            return response
+
         try:
-            output = resp.json()
-        except Exception:
-            output = resp.text
+            data = response.json()
+        except:
+            data = response.text
+
         return SlugResult(
-            ok=resp.ok,
-            status=resp.status_code,
-            output=output,
-            error="" if resp.ok else resp.text,
-            tokens=[f"{resp.request.method} {resp.url}"],
+            ok=response.ok,
+            status=response.status_code,
+            output=data,
+            error="" if response.ok else response.text,
+            tokens=tokens,
         )

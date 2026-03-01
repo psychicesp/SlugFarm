@@ -1,14 +1,14 @@
-#%%
-from src.slug_farm.bash_slugs import BashSlug
+# %%
+from src.slug_farm.request_slugs import RequestSlug
 
-docker_slug = BashSlug(
-    name="docker",
-    command="docker",
+rest_slug = RequestSlug(
+    name="dumb",
+    base_url="https://www.dumb_url.com?dumb_param=dumb",
 )
 
-docker_ps = docker_slug.branch(
-    branch_name="ps",
-    command="ps"
+butt_slug = rest_slug.branch(
+    branch_name="butt",
+    url_segment="butt?butt_param=dumb",
 )
 
 # %%

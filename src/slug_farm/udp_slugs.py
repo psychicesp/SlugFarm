@@ -1,23 +1,12 @@
+import copy
 import json
 import socket
-import copy
 from time import sleep
+from typing import Any, List, Optional
 from uuid import uuid4
-from typing import Any, Optional, List, Callable
-from src.slug_farm.base import Slug, SlugResult, CommandSegment
 
+from src.slug_farm.base import CommandSegment, Slug, SlugResult
 
-def upd_kwarg_formatter(kwargs: dict[str, Any]) -> dict[str, Any]:
-    return kwargs
-
-
-
-def udp_payload_formatter(kwargs: dict[str, Any]) -> dict[str, Any]:
-    """
-    For UDP, the formatter just ensures we have a clean dict.
-    We can also use this to enforce specific types or hidden fields.
-    """
-    return copy.deepcopy(kwargs)
 
 class UDP_Slug(Slug):
     def __init__(
@@ -39,8 +28,6 @@ class UDP_Slug(Slug):
             command=command,
             slug_kwargs=slug_kwargs,
             base_command_segments=base_command_segments,
-            kwarg_formatter=udp_payload_formatter,
-            command_formatter=lambda x: x 
         )
 
         self.url = url
@@ -51,27 +38,54 @@ class UDP_Slug(Slug):
         self.sock_family = sock_family
         self.sock_type = sock_type
 
-    def _test_print(self, tokens: list[tuple[Any, dict]]):
-        """Override to show the final JSON payload and destination."""
-        final_payload = self._merge_payload(tokens)
-        print(f"Target  : {self.url}:{self.port}")
-        print(f"Burst   : {self.burst_size} pkts ({self.burst_delay}ms delay)")
-        print(f"Payload : {json.dumps(final_payload, indent=2)}")
+    def branch(self, **kwargs):
+        print("UDP_Slug does not yet support branching")
+        attr_dict = self.__dict__.copy()
+        attr_dict.update(kwargs)
+        return UDP_Slug(
+            name=f"{attr_dict.pop('name')}.{attr_dict.pop('branch_name')}",
+            base_command_segments=attr_dict.pop("command_segments"),
+            burst_delay_ms=attr_dict.pop("burst_delay") * 1000,
+            **attr_dict,
+        )
 
-    def _merge_payload(self, tokens: list[tuple[Any, dict]]) -> dict:
+    def test_print(
+        self,
+        tokens: list[tuple[Any, dict]],
+        processed_tokens: Optional[Any] = None,
+    ):
+        """Override to show the final JSON payload and destination."""
+        print(f"Target  : {self.url}:{self.port}")
+        print(f"Burst   : {self.burst_size} pkts ({self.burst_delay * 1000} ms delay)")
+        print(f"Payload : {json.dumps(processed_tokens, indent=2)}")
+
+    def format_kwargs(
+        self, kwargs: Optional[dict[str, Any] | None] = None
+    ) -> dict[str, Any]:
+        """
+        For UDP, the formatter just ensures we have a clean dict.
+        """
+        if kwargs:
+            return copy.deepcopy(kwargs)
+        return {}
+
+    def process_tokens(self, tokens: list[tuple[Any, dict]]) -> dict:
         """Merges all segments into a single JSON dictionary."""
         merged = {}
         for cmd, kwargs in tokens:
             merged.update(kwargs)
             if cmd and cmd != "None":
                 merged["command"] = cmd
-        
+
         merged["udp_id"] = str(uuid4())
         return merged
 
-    def execute(self, tokens: list[tuple[Any, dict]]) -> SlugResult:
-        payload_dict = self._merge_payload(tokens)
-        message = json.dumps(payload_dict).encode(self.encoding)
+    def execute(
+        self,
+        tokens: list[tuple[Any, dict]],
+        processed_tokens: Optional[Any] = None,
+    ) -> SlugResult:
+        message = json.dumps(processed_tokens).encode(self.encoding)
 
         critical_i = self.burst_size - 1
         try:
@@ -80,20 +94,17 @@ class UDP_Slug(Slug):
                     sock.sendto(message, (self.url, self.port))
                     if i < critical_i:
                         sleep(self.burst_delay)
-            
+
             return SlugResult(
-                ok=True,
-                status=200,
-                output=payload_dict,
-                tokens=tokens
+                ok=True, status=200, output=processed_tokens, tokens=tokens
             )
         except Exception as e:
             return SlugResult(
                 ok=False,
                 status=500,
-                output=payload_dict,
+                output=processed_tokens,
                 error=str(e),
-                tokens=tokens
+                tokens=tokens,
             )
 
 
