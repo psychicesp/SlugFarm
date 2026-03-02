@@ -51,7 +51,9 @@ class BashSlug(Slug):
                 flat.extend(shlex.split(cmd))
             if flags:
                 flat.extend(flags)
-        print(f"Command: {shlex.join(flat)}")
+        command_string = shlex.join(flat)
+        print(f"Command: {command_string}")
+        return command_string
 
     def execute(
         self,

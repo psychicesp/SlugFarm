@@ -9,7 +9,7 @@ class SlugResult:
     status: int
     output: Any
     error: str = ""
-    tokens: list[Any] = field(default_factory=list)
+    tokens: list[Any] = (field(default_factory=list),)
 
 
 @dataclass(slots=True)
@@ -53,7 +53,8 @@ class Slug:
         branch_name: str,
         command: Optional[str] = None,
         slug_kwargs: Optional[dict[str, Any]] = None,
-        replace_command=False,
+        replace_kwargs=False,
+        **kwargs,
     ) -> "Slug":
         """Creates a new instance with an additional command-flag segment."""
 
@@ -61,7 +62,7 @@ class Slug:
             command=command, slug_kwargs=slug_kwargs
         )
         new_name = f"{branch_name}.{self.name}"
-        if replace_command:
+        if replace_kwargs:
             return self.__class__(
                 name=new_name,
                 command=command,
@@ -109,7 +110,7 @@ class Slug:
         self,
         tokens: list[Any],
         processed_tokens: Optional[Any] = None,
-    ):
+    ) -> Any:
         if processed_tokens:
             try:
                 print(processed_tokens)
@@ -118,6 +119,7 @@ class Slug:
                 pass
         for token in tokens:
             print(str(token))
+        return tokens
 
     def assemble_tokens(
         self,
@@ -182,13 +184,13 @@ class Slug:
         processed_tokens = self.process_tokens(tokens)
         if test:
             print(f"\n--- DRY RUN: {self.name} ---")
-            self.test_print(tokens, processed_tokens)
+            print_output = self.test_print(tokens, processed_tokens)
             return SlugResult(
-                True,
-                200,
-                "Test Happened",
-                "Dont Think So",
-                tokens,
+                ok=True,
+                status=200,
+                output=print_output,
+                error="Dont Think So",
+                tokens=tokens,
             )
         response = self.execute(
             tokens=tokens,
