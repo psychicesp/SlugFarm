@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
@@ -143,8 +144,7 @@ class RequestSlug(Slug):
         Returns the first RequestPackage for programmatic inspection.
         """
         if not tokens or not isinstance(tokens[0], RequestPackage):
-            print("!!! No RequestPackage found to test !!!")
-            return None
+            raise Exception("!!! No RequestPackage found to test !!!")
 
         pkg = tokens[0]
 
@@ -158,8 +158,6 @@ class RequestSlug(Slug):
             print("QUERY:   (None)")
 
         if pkg.json_body:
-            import json
-
             try:
                 body_str = json.dumps(pkg.json_body, indent=4)
                 print(f"BODY:\n{body_str}")

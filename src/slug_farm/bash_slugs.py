@@ -1,3 +1,4 @@
+import copy
 import shlex
 import subprocess
 from typing import Any, List, Optional
@@ -20,25 +21,43 @@ class BashSlug(Slug):
             base_command_segments=base_command_segments,
         )
 
-    def format_kwargs(
-        self, kwargs: Optional[dict[str, Any] | None] = None
-    ) -> list[str]:
-        flaged_args: list[str] = []
+    def branch(
+        self,
+        branch_name: str,
+        command: Optional[str] = None,
+        slug_kwargs: Optional[dict[str, Any]] = None,
+    ) -> "BashSlug":
+        """
+        Create a child BashSlug.
 
-        if not kwargs:
-            return []
+        Tip: BashSlug will auto-prefix kwargs adding
+            --  in front of words
+            - in front of letters.  Some bash commands expect otherwise.
+        In `slug_kwargs`, keys starting with '-' (e.g. {"-name": "*.csv"}) to bypass auto-prefixing.
+        """
 
-        for k, v in sorted(kwargs.items(), key=lambda kv: (len(kv[0]), kv[0])):
-            prefix = "-" if len(k) == 1 else "--"
-            flag = f"{prefix}{k}"
-            if v is False:
-                continue
-            if v is None or v is True:
-                flaged_args.append(flag)
-            else:
-                flaged_args.extend([flag, str(v)])
+        return self.__class__(
+            f"{self.name}.{branch_name}",
+            command,
+            slug_kwargs,
+            base_command_segments=self.command_segments,
+        )
 
-        return flaged_args
+    def format_kwargs(self, kwargs: dict[str, Any] | None = None) -> list[str]:
+        formatted = []
+        if kwargs:
+            for k, v in sorted(kwargs.items(), key=lambda x: (len(x[0]), x[0])):
+                if k.startswith("-"):
+                    flag = k
+                else:
+                    prefix = "-" if len(k) == 1 else "--"
+                    flag = f"{prefix}{k}"
+
+                if v is True:
+                    formatted.append(flag)
+                elif v is not False and v is not None:
+                    formatted.extend([flag, str(v)])
+        return formatted
 
     def test_print(
         self,

@@ -9,7 +9,7 @@ class SlugResult:
     status: int
     output: Any
     error: str = ""
-    tokens: list[Any] = (field(default_factory=list),)
+    tokens: list[Any] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -39,11 +39,6 @@ class Slug:
         self.name = name
         self.command_segments = base_command_segments or []
 
-        if slug_kwargs and not command:
-            raise Exception(
-                "Cannot instantiate base Slug with slug_kwargs and no base_command.  There would be nothing to apply the kwargs to"
-            )
-
         self.command_segments = self.add_command(
             command=command, slug_kwargs=slug_kwargs
         )
@@ -57,10 +52,6 @@ class Slug:
         **kwargs,
     ) -> "Slug":
         """Creates a new instance with an additional command-flag segment."""
-
-        new_command_segments = self.add_command(
-            command=command, slug_kwargs=slug_kwargs
-        )
         new_name = f"{branch_name}.{self.name}"
         if replace_kwargs:
             return self.__class__(
@@ -70,8 +61,12 @@ class Slug:
             )
         return self.__class__(
             name=new_name,
-            base_command_segments=new_command_segments,
+            command=command,
+            slug_kwargs=slug_kwargs,
+            base_command_segments=copy.deepcopy(self.command_segments),
         )
+
+        return child
 
     def format_commands(self, command: Optional[str] = None) -> Any:
         """Placeholder default formatter. Does Nothing"""
@@ -89,20 +84,26 @@ class Slug:
         new_command_segments = (
             copy.deepcopy(self.command_segments) if self.command_segments else []
         )
+
         if not command and not slug_kwargs:
             return new_command_segments
+
         if slug_kwargs and not command:
-            if not self.command_segments:
-                raise Exception(
-                    "You supplied kwargs but there are no commands to apply it to"
+            if new_command_segments:
+                # Case A: Append to existing context
+                print("Appending kwargs to last command segment")
+                new_command_segments[-1].kwargs.update(slug_kwargs)
+            else:
+                # Case B: No history yet, create a "Commandless" segment for these flags
+                print("Creating a commandless segment for orphaned kwargs")
+                new_command_segments.append(
+                    CommandSegment(command=None, kwargs=slug_kwargs)
                 )
-            print(
-                "You supplied Kwargs but no command.  Appending these to last command"
-            )
-            new_command_segments[-1].kwargs.update(slug_kwargs)
             return new_command_segments
+
         if not slug_kwargs:
             slug_kwargs = {}
+
         new_command_segments.append(CommandSegment(command=command, kwargs=slug_kwargs))
         return new_command_segments
 
