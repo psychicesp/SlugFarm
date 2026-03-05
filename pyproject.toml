@@ -1,20 +1,37 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "slug_farm"
 version = "0.1.0"
+authors = [
+  { name="Eric S Penrose", email="ericspenrose@gmail.com" },
+]
 description = "A hierarchical, state-inheriting command and request builder."
 readme = "README.md"
 requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
-    "requests>=2.25.0", 
+    "requests",
     "yarl>=1.6.0",
 ]
-
+license = { file = "LICENSE" }
 [project.optional-dependencies]
-dev = ["pytest", "black"]
+sql = ["sqlalchemy>=2.0.0"]
+dev = ["pytest", "black", "fastapi", "uvicorn"]
+
+
+
+[project.urls]
+"Homepage" = "https://github.com/psychicesp/slug_farm"
+"Bug Tracker" = "https://github.com/psychicesp/slug_farm/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
