@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="SlugFarm.png" height="160" alt="logo">
+  <img src="https://raw.githubusercontent.com/psychicesp/SlugFarm/main/SlugFarm.png" height="160" alt="logo">
   <h1>Slug Farm</h1>
 </div>
 
