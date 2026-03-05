@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from yarl import URL
 
-from src.slug_farm.base import CommandSegment, Slug, SlugResult
+from slug_farm.base import CommandSegment, Slug, SlugResult
 
 
 @dataclass(slots=True)

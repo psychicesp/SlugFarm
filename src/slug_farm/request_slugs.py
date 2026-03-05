@@ -1,4 +1,5 @@
 import json
+import re
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
@@ -6,7 +7,9 @@ from typing import Any, Iterable, Optional
 import requests
 from yarl import URL
 
-from src.slug_farm.base import CommandSegment, Slug, SlugResult
+from slug_farm.base import CommandSegment, Slug, SlugResult
+
+PLACEHOLDER_PATTERN = r"(\{[\s]*([^/{}]+?)[\s]*\})"
 
 
 @dataclass(slots=True)
@@ -45,11 +48,9 @@ class RequestSlug(Slug):
         self.method = method.upper()
         self.headers = headers or {}
         self.params = params or {}
-        self.payload_data = payload_data or {}
         self.timeout = timeout
         self.include_params = set(include_params) if include_params else None
         self.exclude_params = set(exclude_params) if exclude_params else None
-        self.command_segments = base_command_segments
 
     def branch(
         self,
@@ -60,22 +61,26 @@ class RequestSlug(Slug):
         method: Optional[str] = None,
         sub_headers: Optional[dict] = None,
         timeout: Optional[int] = None,
-    ) -> "RequestsSlug":
+        replace_kwargs: bool = False,
+    ) -> "RequestSlug":
         """Creates a sub-route or specialized version of the current request."""
 
         new_params = {**self.params, **(sub_params or {})}
         new_headers = {**self.headers, **(sub_headers or {})}
 
-        new_command_segments = self.add_command(
-            command=url_segment, slug_kwargs=sub_payload
-        )
+        new_command_segments = deepcopy(self.command_segments)
+
+        if replace_kwargs:
+            for seg in new_command_segments:
+                seg.kwargs = {}
 
         return self.__class__(
             name=f"{branch_name}.{self.name}",
+            base_url=url_segment,
             method=method or self.method,
             headers=new_headers,
             params=new_params,
-            payload_data=self.payload_data,
+            payload_data=sub_payload,
             timeout=timeout or self.timeout,
             include_params=self.include_params,
             exclude_params=self.exclude_params,
@@ -98,35 +103,61 @@ class RequestSlug(Slug):
     def assemble_tokens(
         self, command: Optional[str] = None, task_kwargs: Optional[dict] = None
     ) -> list[RequestPackage]:
+        task_kwargs = task_kwargs or {}
         all_segments = self.add_command(command=command, slug_kwargs=task_kwargs)
 
         url_obj = URL(all_segments[0].command or "")
+        if (
+            command and "?" in command
+        ):  # params added in this format should be absolute and will need to update at the end
+            call_query = URL(command).query
+        else:
+            call_query = None
+        all_segments[0].command = ""
         accumulated_params = deepcopy(self.params)
-        accumulated_payload = deepcopy(self.payload_data)
+        accumulated_payload = {}
 
-        for seg in all_segments[1:]:
+        for seg in all_segments:
             if seg.command:
                 url_obj = url_obj / seg.command.lstrip("/")
 
             if seg.kwargs:
                 for k, v in seg.kwargs.items():
-                    if self.include_params and k in self.include_params:
-                        accumulated_params[k] = v
-                    elif self.method == "GET":
+                    if (
+                        self.include_params and k in self.include_params
+                    ) or self.method == "GET":
                         accumulated_params[k] = v
                     else:
                         accumulated_payload[k] = v
 
-        if command and "?" in command:
-            call_query = URL(command).query
-            accumulated_params.update(call_query)
+        if call_query:
+            accumulated_params.update(call_query)  # And now they're updated
 
         final_params = self._filter_params(accumulated_params)
+
+        url_with_placeholders = url_obj.with_query(None).human_repr()
+
+        placeholder_matches = re.findall(PLACEHOLDER_PATTERN, url_with_placeholders)
+
+        if "{" in url_with_placeholders:
+            placeholder_matches = [(x, y.strip()) for x, y in placeholder_matches]
+            unmatched_keys = [y for x, y in placeholder_matches if y not in task_kwargs]
+            if unmatched_keys:
+                raise Exception(
+                    f"Unable to place {unmatched_keys} into {url_with_placeholders}"
+                )
+            for match, param_key in placeholder_matches:
+                param_match = str(task_kwargs[param_key])
+                url_with_placeholders = url_with_placeholders.replace(
+                    match, param_match
+                )
+
+        final_url = url_with_placeholders
 
         return [
             RequestPackage(
                 method=self.method,
-                url=str(url_obj),
+                url=final_url,
                 params=final_params,
                 json_body=accumulated_payload if self.method != "GET" else {},
                 headers=deepcopy(self.headers),

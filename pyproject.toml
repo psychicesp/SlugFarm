@@ -19,12 +19,15 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "requests>=2.25.0",
+    "requests",
     "yarl>=1.6.0",
 ]
+license = { file = "LICENSE" }
 [project.optional-dependencies]
 sql = ["sqlalchemy>=2.0.0"]
-dev = ["pytest", "black"]
+dev = ["pytest", "black", "fastapi", "uvicorn"]
+
+
 
 [project.urls]
 "Homepage" = "https://github.com/psychicesp/slug_farm"

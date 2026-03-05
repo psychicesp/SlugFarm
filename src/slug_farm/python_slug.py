@@ -1,7 +1,7 @@
 import traceback
 from typing import Any, Callable, Optional
 
-from src.slug_farm.base import Slug, SlugResult
+from slug_farm.base import Slug, SlugResult
 
 
 class PythonSlug(Slug):

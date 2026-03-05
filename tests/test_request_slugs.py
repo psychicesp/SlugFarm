@@ -1,39 +1,64 @@
 import threading
+import time
 
 import pytest
-from flask import Flask, jsonify, request
-from werkzeug.serving import make_server
+import uvicorn
+from fastapi import FastAPI, HTTPException
 from yarl import URL
 
-from src.slug_farm.request_slugs import RequestPackage, RequestSlug
+from slug_farm import RequestPackage, RequestSlug
 
 
 @pytest.fixture(scope="module")
 def farm_server():
-    app = Flask(__name__)
-    database = {"crops": {}}
+    app = FastAPI()
+    database = {
+        "crops": {
+            "corn": {
+                "name": "corn",
+                "tons": 100,
+            },
+            "soy": {
+                "name": "soybeans",
+                "tons": 80,
+            },
+        },
+    }
 
-    @app.route("/crops", methods=["GET", "POST"])
-    def crops_handler():
-        if request.method == "POST":
-            data = request.json
-            name = data.get("name")
-            database["crops"][name] = data
-            return jsonify(data), 201
-        return jsonify(database["crops"])
+    @app.get("/crops")
+    def list_crops():
+        return database["crops"]
 
-    @app.route("/crops/<name>", methods=["PATCH"])
-    def update_handler(name):
+    @app.post("/crops", status_code=201)
+    def create_crop(payload: dict):
+        name = payload.get("name")
+        database["crops"][name] = payload
+        return payload
+
+    @app.patch("/crops/{name}")
+    def update_crop(name: str, payload: dict):
         if name not in database["crops"]:
-            return jsonify({"error": "not found"}), 404
-        database["crops"][name].update(request.json)
-        return jsonify(database["crops"][name]), 200
+            raise HTTPException(status_code=404, detail="not found")
+        database["crops"][name].update(payload)
+        return database["crops"][name]
 
-    server = make_server("127.0.0.1", 8080, app)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    # --- NEW ENDPOINT FOR PLACEHOLDERS ---
+    @app.delete("/crops/{name}")
+    def delete_crop(name: str):
+        if name not in database["crops"]:
+            raise HTTPException(status_code=404, detail="not found")
+        return database["crops"].pop(name)
+
+    config = uvicorn.Config(app, host="127.0.0.1", port=8080, log_level="error")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
+    time.sleep(0.1)
+
     yield "http://127.0.0.1:8080"
-    server.shutdown()
+
+    server.should_exit = True
+    thread.join(timeout=2)
 
 
 # --- Structural & Logic Tests (Dry Runs) ---
@@ -45,14 +70,14 @@ def test_slug_initialization():
     slug = RequestSlug(
         name="root",
         base_url="https://api.farm.com",
-        method="post",  # Testing case-insensitivity
+        method="post",
         timeout=30,
     )
     result = slug(test=True)
     package = result.output
     assert slug.method == "POST"
     assert slug.timeout == 30
-    assert str(package.url) == "https://api.farm.com"
+    assert package.url == "https://api.farm.com/"
 
 
 @pytest.mark.dependency(depends=["test_slug_initialization"])
@@ -96,6 +121,47 @@ def test_param_filtering_logic():
         "Filter failed to exclude unauthorized param!"
     )
 
+    strict_slug.method = "POST"
+
+    post_result = strict_slug(
+        task_kwargs={
+            "id": 1,
+            "name": "wheat",
+            "secret_key": "hacker",
+        },
+        test=True,
+    )
+
+    pkg = post_result.output
+    assert "id" in pkg.params
+    assert "name" in pkg.params
+    assert "secret_key" not in pkg.params, (
+        "Filter failed to exclude unauthorized param!"
+    )
+    assert "id" not in pkg.json_body
+    assert "name" not in pkg.json_body
+    assert "secret_key" in pkg.json_body
+    assert "secret_key" in pkg.json_body
+
+
+def test_placeholder_structural_logic():
+    """Verify regex replacement and error handling without a live server."""
+    slug = RequestSlug(
+        name="placeholder_test", base_url="https://api.com/v1/{ category }/{item_id}"
+    )
+
+    result = slug(
+        task_kwargs={"category": "fruits", "item_id": 55, "extra": "stay"}, test=True
+    )
+    pkg = result.output
+
+    assert pkg.url == "https://api.com/v1/fruits/55"
+    assert "category" in pkg.params
+    assert "item_id" in pkg.params
+
+    with pytest.raises(Exception, match="Unable to place"):
+        slug(task_kwargs={"category": "missing_item_id"}, test=True)
+
 
 @pytest.mark.dependency(depends=["test_param_filtering_logic"])
 def test_get_vs_post_body_logic():
@@ -128,7 +194,8 @@ def test_discovery_get(farm_server):
 
     result = crops()
     assert result.ok is True
-    assert result.output == {}
+    assert "corn" in result.output
+    assert "soy" in result.output
 
 
 @pytest.mark.dependency(depends=["test_discovery_get"])
@@ -157,3 +224,21 @@ def test_modification_patch(farm_server):
 
     final_check = RequestSlug("check", base_url=f"{farm_server}/crops")()
     assert final_check.output["wheat"]["tons"] == 1200
+
+
+@pytest.mark.dependency(depends=["test_modification_patch"])
+def test_placeholder_live_execution(farm_server):
+    """Verify live DELETE request using URL placeholders."""
+    api = RequestSlug("farm", base_url=farm_server)
+
+    delete_slug = api.branch(
+        "delete_crop", url_segment="/crops/{crop_name}", method="DELETE"
+    )
+
+    result = delete_slug(task_kwargs={"crop_name": "wheat"})
+
+    assert result.status == 200
+    assert result.output["name"] == "wheat"
+
+    check = RequestSlug("check", base_url=f"{farm_server}/crops")()
+    assert "wheat" not in check.output

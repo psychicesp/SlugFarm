@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from src.slug_farm.udp_slugs import UDP_Slug
+from slug_farm import UDP_Slug
 
 
 @pytest.fixture

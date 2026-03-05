@@ -3,7 +3,7 @@ import shlex
 import subprocess
 from typing import Any, List, Optional
 
-from src.slug_farm.base import CommandSegment, Slug, SlugResult
+from slug_farm.base import CommandSegment, Slug, SlugResult
 
 
 class BashSlug(Slug):

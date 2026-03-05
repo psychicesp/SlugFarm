@@ -66,8 +66,6 @@ class Slug:
             base_command_segments=copy.deepcopy(self.command_segments),
         )
 
-        return child
-
     def format_commands(self, command: Optional[str] = None) -> Any:
         """Placeholder default formatter. Does Nothing"""
         return command
