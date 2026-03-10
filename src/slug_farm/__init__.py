@@ -1,4 +1,4 @@
-from .base import CommandSegment, Slug, SlugRegistry, SlugResult
+from .base import CommandSegment, Slug, SlugResult
 from .bash_slugs import BashSlug
 from .python_slug import PythonSlug
 from .request_slugs import RequestPackage, RequestSlug
