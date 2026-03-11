@@ -75,7 +75,7 @@ class RequestSlug(Slug):
                 seg.kwargs = {}
 
         return self.__class__(
-            name=f"{branch_name}.{self.name}",
+            name=f"{self.name}.{branch_name}",
             base_url=url_segment,
             method=method or self.method,
             headers=new_headers,
