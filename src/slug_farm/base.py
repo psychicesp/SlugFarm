@@ -1,6 +1,7 @@
 import copy
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
+from pydantic import BaseModel
 
 
 @dataclass(slots=True)
@@ -18,16 +19,6 @@ class CommandSegment:
     kwargs: dict = field(default_factory=dict)
 
 
-def default_command_formatter(command: Optional[str] = None):
-    """Does Nothing"""
-    return command
-
-
-def default_kwarg_formatter(kwargs: Optional[dict[str, Any]] = None):
-    """Does Nothing"""
-    return kwargs
-
-
 class Slug:
     def __init__(
         self,
@@ -35,7 +26,9 @@ class Slug:
         command: Optional[str] = None,
         slug_kwargs: Optional[dict[str, Any]] = None,
         base_command_segments: Optional[List[CommandSegment]] = None,
+        kwarg_conditioner: Optional[BaseModel] = None,
     ):
+        self.kwarg_conditioner = kwarg_conditioner
         self.name = name
         self.command_segments = base_command_segments or []
 
@@ -49,6 +42,7 @@ class Slug:
         command: Optional[str] = None,
         slug_kwargs: Optional[dict[str, Any]] = None,
         replace_kwargs=False,
+        kwarg_conditioner: Optional[BaseModel] = None,
         **kwargs,
     ) -> "Slug":
         """Creates a new instance with an additional command-flag segment."""
@@ -59,11 +53,13 @@ class Slug:
                 command=command,
                 slug_kwargs=slug_kwargs,
             )
+            
         return self.__class__(
             name=new_name,
             command=command,
             slug_kwargs=slug_kwargs,
             base_command_segments=copy.deepcopy(self.command_segments),
+            kwarg_conditioner = kwarg_conditioner or self.kwarg_conditioner
         )
 
     def format_commands(self, command: Optional[str] = None) -> Any:
@@ -79,6 +75,10 @@ class Slug:
         command: Optional[str] = None,
         slug_kwargs: Optional[dict] = None,
     ) -> list[CommandSegment]:
+        
+        if self.kwarg_conditioner:
+            slug_kwargs = self.kwarg_conditioner.model_validate(slug_kwargs).model_dump()
+        
         new_command_segments = (
             copy.deepcopy(self.command_segments) if self.command_segments else []
         )
@@ -88,12 +88,8 @@ class Slug:
 
         if slug_kwargs and not command:
             if new_command_segments:
-                # Case A: Append to existing context
-                print("Appending kwargs to last command segment")
                 new_command_segments[-1].kwargs.update(slug_kwargs)
             else:
-                # Case B: No history yet, create a "Commandless" segment for these flags
-                print("Creating a commandless segment for orphaned kwargs")
                 new_command_segments.append(
                     CommandSegment(command=None, kwargs=slug_kwargs)
                 )
