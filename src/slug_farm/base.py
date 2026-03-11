@@ -52,7 +52,7 @@ class Slug:
         **kwargs,
     ) -> "Slug":
         """Creates a new instance with an additional command-flag segment."""
-        new_name = f"{branch_name}.{self.name}"
+        new_name = f"{self.name}.{branch_name}"
         if replace_kwargs:
             return self.__class__(
                 name=new_name,
@@ -198,4 +198,3 @@ class Slug:
         if isinstance(response, SlugResult):
             return response
         return self.handle_response(response, tokens)
-
