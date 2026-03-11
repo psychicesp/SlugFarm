@@ -100,7 +100,7 @@ def test_branching_and_url_assembly():
 
     assert package.url == "https://farm.com/v1/wheat"
     assert package.params == {"api_key": "123", "units": "tons"}
-    assert leaf.name == "crops.api"
+    assert leaf.name == "api.crops"
 
 
 @pytest.mark.dependency(depends=["test_branching_and_url_assembly"])
