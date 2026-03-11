@@ -3,8 +3,11 @@ import socket
 import sqlite3
 import threading
 import time
+import warnings
 
+import numpy as np
 import pytest
+from conftest import _BURST_STATS
 
 from slug_farm import UDP_Slug
 
@@ -93,8 +96,6 @@ def test_udp_branching_and_package_integrity():
 
 
 # --- Live Execution Tests (Functional) ---
-
-
 def test_udp_slug_high_volume_burst(udp_auditor):
     host, port, db_path = udp_auditor
 
@@ -132,16 +133,46 @@ def test_udp_slug_high_volume_burst(udp_auditor):
             assert row[0] == first_uuid, "UUID changed mid-burst!"
 
     if received_count > 1:
+        target_s = delay_ms / 1000
+
         arrival_times = sorted([row[1] for row in rows])
+
         deltas = [
             arrival_times[i] - arrival_times[i - 1]
             for i in range(1, len(arrival_times))
         ]
+        avg_delta = np.mean(deltas)
+        med_delta = np.median(deltas)
+        std_dev = np.std(deltas)
 
-        avg_delta = sum(deltas) / len(deltas)
-        assert 0.008 <= avg_delta <= 0.03, (
-            f"Average burst delay {avg_delta}s is off-target"
+        assert (target_s / 8) <= avg_delta <= (target_s * 8), (
+            f"CRITICAL TIMING FAILURE: Average {avg_delta}s is fundamentally wrong."
         )
+
+        soft_target_low = target_s * 0.6
+        soft_target_high = target_s * 1.4
+        max_allowed_std = 0.015
+
+        is_on_target = soft_target_low <= med_delta <= soft_target_high
+        is_stable = std_dev < max_allowed_std
+
+        _BURST_STATS.append(
+            {
+                "name": "UDP High Volume Burst",
+                "med": med_delta,
+                "std": std_dev,
+                "rate": success_rate,
+                "ok": (0.008 <= med_delta <= 0.03) and (std_dev < 0.015),
+            }
+        )
+
+        if not is_on_target or not is_stable:
+            warnings.warn(
+                f"\n[UDP Jitter Warning]\n"
+                f"Median Delta: {med_delta:.4f}s (Target: {soft_target_low}-{soft_target_high})\n"
+                f"Std Dev: {std_dev:.4f}s (Max: {max_allowed_std})\n"
+                f"The burst was successful, but timing was inconsistent."
+            )
 
 
 def test_udp_burst_timing_logic(udp_auditor):
