@@ -25,7 +25,7 @@ dependencies = [
 license = { file = "LICENSE" }
 [project.optional-dependencies]
 sql = ["sqlalchemy>=2.0.0"]
-dev = ["pytest", "pytest-dependency", "black", "fastapi", "uvicorn"]
+dev = ["pytest", "pytest-dependency", "black", "fastapi", "uvicorn", "numpy"]
 
 
 
