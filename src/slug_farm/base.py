@@ -62,6 +62,14 @@ class Slug:
             kwarg_conditioner = kwarg_conditioner or self.kwarg_conditioner
         )
 
+    def derive(self, *args, **kwargs):
+        # branch alias for people who prefer to avoid branch for something which might call Git arguments
+        return self.branch(*args, **kwargs)
+    
+    def subslug(self, *args, **kwargs):
+        # branch alias for people who prefer to avoid branch for something which might call Git arguments
+        return self.branch(*args, **kwargs)
+
     def format_commands(self, command: Optional[str] = None) -> Any:
         """Placeholder default formatter. Does Nothing"""
         return command
