@@ -30,8 +30,8 @@ dev = ["pytest", "pytest-dependency", "black", "fastapi", "uvicorn", "numpy"]
 
 
 [project.urls]
-"Homepage" = "https://github.com/psychicesp/slug_farm"
-"Bug Tracker" = "https://github.com/psychicesp/slug_farm/issues"
+"Homepage" = "https://github.com/psychicesp/SlugFarm"
+"Bug Tracker" = "https://github.com/psychicesp/SlugFarm/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
